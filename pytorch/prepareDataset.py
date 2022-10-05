@@ -34,7 +34,7 @@ args = parser.parse_args()
 
 
 def main():
-    # 处理输入参数
+    # 处理输入参数。如果未指定输出路径，则将原始数据集路径作为输出路径
     if args.output_path is None:
         args.output_path = args.dataset_path
 
@@ -63,7 +63,7 @@ def main():
         'labelFaceGrid': [],
     }
 
-    # 遍历每个参与者目录
+    # 遍历每个参与者目录，例 recording=00002, 00003
     for i, recording in enumerate(recordings):
         print('[%d/%d] Processing recording %s (%.2f%%)' % (i, len(recordings), recording, i / len(recordings) * 100))
         # 原始记录参与者全路径，如 C:\gaze\datasets\GazeCapture\00002
@@ -97,7 +97,7 @@ def main():
         # if screen is None:
         #     continue
 
-        # 裁剪后的脸、眼睛图像 存放位置全路径
+        # 裁剪后的脸、眼睛图像 存放位置全路径。创建路径
         facePath = preparePath(os.path.join(recDirOut, 'appleFace'))
         leftEyePath = preparePath(os.path.join(recDirOut, 'appleLeftEye'))
         rightEyePath = preparePath(os.path.join(recDirOut, 'appleRightEye'))
@@ -125,6 +125,7 @@ def main():
         # (w_1, w_2, ..., w_n)
         # (h_1, h_2, ..., h_n)
         bboxFromJson = lambda data: np.stack((data['X'], data['Y'], data['W'], data['H']), axis=1).astype(int)
+        # 维度如 (99,4). 99 表示该用户有 99 帧有效图像，4 = (X, Y, W, H)
         faceBbox = bboxFromJson(appleFace) + [-1, -1, 1, 1] # for compatibility with matlab code
         leftEyeBbox = bboxFromJson(appleLeftEye) + [0, -1, 0, 0]
         rightEyeBbox = bboxFromJson(appleRightEye) + [0, -1, 0, 0]
@@ -140,10 +141,12 @@ def main():
                 continue
 
             # Load image
+            # 拼接原始帧路径
             imgFile = os.path.join(recDir, 'frames', '%05d.jpg' % frame)
             if not os.path.isfile(imgFile):
                 logError('Warning: Could not read image file %s!' % imgFile)
                 continue
+            # 读取图片
             img = Image.open(imgFile)        
             if img is None:
                 logError('Warning: Could not read image file %s!' % imgFile)
@@ -161,14 +164,17 @@ def main():
             Image.fromarray(imEyeR).save(os.path.join(rightEyePath, '%05d.jpg' % frame), quality=95)
 
             # Collect metadata
+            # 参与者编号。应该共 1474 名参与者
             meta['labelRecNum'] += [int(recording)]
+            # 帧索引号
             meta['frameIndex'] += [frame]
+            # 在屏幕上显示的红点中心 在 预测空间（摄像机在 (0, 0) 处）的位置
             meta['labelDotXCam'] += [dotInfo['XCam'][j]]
             meta['labelDotYCam'] += [dotInfo['YCam'][j]]
             meta['labelFaceGrid'] += [faceGridBbox[j, :]]
 
     
-    # Integrate 合并
+    # Integrate. 合并
     meta['labelRecNum'] = np.stack(meta['labelRecNum'], axis=0).astype(np.int16)
     meta['frameIndex'] = np.stack(meta['frameIndex'], axis=0).astype(np.int32)
     meta['labelDotXCam'] = np.stack(meta['labelDotXCam'], axis=0)
@@ -177,7 +183,15 @@ def main():
 
     # Load reference metadata
     print('Will compare to the reference GitHub dataset metadata.mat...')
-    reference = sio.loadmat('./reference_metadata.mat', struct_as_record=False) 
+    # 共 1,490,959 帧有效图像（同时具有人脸和眼睛）
+    reference = sio.loadmat('./reference_metadata.mat', struct_as_record=False)
+    # reference_metadata.mat 存储的数据：以下 8 项均为 1,490,959 的列表
+    # frameIndex：该帧的索引号、
+    # labelDotXCam、labelDotYCam：该帧在屏幕上显示的红点中心在预测空间的 x、y 位置、
+    # labelFaceGrid：该帧的人脸网格，每一个值都是 4 维数组 [x, y, w, h]
+    # labelRecNum：该帧是由哪一个参与者采集的，如 00002、00003、00005、00006 等
+    # labelTest、labelTrain、labelVal：值为 0 或 1，表示该帧是否为训练集、测试集或验证集
+    # flatten 返回一个一维数组。a.flatten()就是把 a 降到一维，默认是按行的方向降。flatten 只能适用于 numpy 对象，即 array 或者 mat，普通的 list 列表不适用
     reference['labelRecNum'] = reference['labelRecNum'].flatten()
     reference['frameIndex'] = reference['frameIndex'].flatten()
     reference['labelDotXCam'] = reference['labelDotXCam'].flatten()
@@ -187,10 +201,14 @@ def main():
     reference['labelTest'] = reference['labelTest'].flatten()
 
     # Find mapping
+    # 拼接为 '参与者序号_帧序号'
+    # 处理的本地数据集，长度为有效帧数
     mKey = np.array(['%05d_%05d' % (rec, frame) for rec, frame in zip(meta['labelRecNum'], meta['frameIndex'])], np.object)
+    # GitHub dataset metadata.mat
     rKey = np.array(['%05d_%05d' % (rec, frame) for rec, frame in zip(reference['labelRecNum'], reference['frameIndex'])], np.object)
     mIndex = {k: i for i, k in enumerate(mKey)}
     rIndex = {k: i for i, k in enumerate(rKey)}
+    # 初始化一个长度为有效帧数的向量，所有值初始化为 -1
     mToR = np.zeros((len(mKey,)), int) - 1
     for i, k in enumerate(mKey):
         if k in rIndex:
@@ -206,9 +224,9 @@ def main():
             #break
 
     # Copy split from reference
-    meta['labelTrain'] = np.zeros((len(meta['labelRecNum'],)),np.bool)
-    meta['labelVal'] = np.ones((len(meta['labelRecNum'],)),np.bool) # default choice
-    meta['labelTest'] = np.zeros((len(meta['labelRecNum'],)),np.bool)
+    meta['labelTrain'] = np.zeros((len(meta['labelRecNum'],)), np.bool)
+    meta['labelVal'] = np.ones((len(meta['labelRecNum'],)), np.bool) # default choice
+    meta['labelTest'] = np.zeros((len(meta['labelRecNum'],)), np.bool)
 
     validMappingMask = mToR >= 0
     meta['labelTrain'][validMappingMask] = reference['labelTrain'][mToR[validMappingMask]]
