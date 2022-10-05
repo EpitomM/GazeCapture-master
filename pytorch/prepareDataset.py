@@ -112,10 +112,23 @@ def main():
         frames = np.array([int(re.match('(\d{5})\.jpg$', x).group(1)) for x in frames])
 
         # 获取脸部、左眼、右眼、脸部网格边框
+        # np.stack([X, Y, W, H], axis=1)，其中 axis=1 或 axis=-1 表示纵向排列，
+        # 即,
+        # (x_1, y_1, w_1, h_1)
+        # (x_2, y_2, w_2, h_2)
+        # (..., ..., ..., ...)
+        # (x_n, y_n, w_n, h_n)
+        # 如果 axis = 0 表示横向排列
+        # 即。
+        # (x_1, x_2, ..., x_n)
+        # (y_1, y_2, ..., y_n)
+        # (w_1, w_2, ..., w_n)
+        # (h_1, h_2, ..., h_n)
         bboxFromJson = lambda data: np.stack((data['X'], data['Y'], data['W'], data['H']), axis=1).astype(int)
         faceBbox = bboxFromJson(appleFace) + [-1, -1, 1, 1] # for compatibility with matlab code
         leftEyeBbox = bboxFromJson(appleLeftEye) + [0, -1, 0, 0]
         rightEyeBbox = bboxFromJson(appleRightEye) + [0, -1, 0, 0]
+        # 标签中记录的眼睛边框是相对于脸的左上角，转化为相对图像左上角的，进行统一。
         leftEyeBbox[:, :2] += faceBbox[:, :2] # relative to face
         rightEyeBbox[:, :2] += faceBbox[:, :2]
         faceGridBbox = bboxFromJson(faceGrid)
