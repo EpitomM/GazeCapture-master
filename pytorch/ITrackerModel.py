@@ -41,35 +41,31 @@ Booktitle = {IEEE Conference on Computer Vision and Pattern Recognition (CVPR)}
 
 class ItrackerImageModel(nn.Module):
     # Used for both eyes (with shared weights) and the face (with unqiue weights)
+    # 左眼、右眼和从原始帧中检测和裁剪出来的脸部图像 尺寸均为 224×224
+    # 人脸网格（face grid） 尺寸为 25×25
     def __init__(self):
         super(ItrackerImageModel, self).__init__()
         self.features = nn.Sequential(
-            # output = ((input - kernel_size + 2 * padding) / stride ) + 1 向下取整
-            # (224, 224, 3) -> (54, 54, 96)
-            nn.Conv2d(3, 96, kernel_size=11, stride=4, padding=0),
+            # Conv2d：output = ((input_size - kernel_size + 2 * padding) / stride ) + 1 向下取整
+            # MaxPool2d：(input_size - kernel_size) / stride + 1  向下取整
+            nn.Conv2d(3, 96, kernel_size=11, stride=4, padding=0),              # (224, 224, 3) -> (54, 54, 96)     (224-11+2*0)/4+1=54     CONV-E1, CONV-F1
             nn.ReLU(inplace=True),
-            # (input - kernel_size +1 ) / stride 向上取整
-            # (54, 54, 96) -> (26, 26, 96)
-            nn.MaxPool2d(kernel_size=3, stride=2),
+            nn.MaxPool2d(kernel_size=3, stride=2),                              # (54, 54, 96) -> (26, 26, 96)      (54-3)/2+1=26
             nn.CrossMapLRN2d(size=5, alpha=0.0001, beta=0.75, k=1.0),
-            # (26, 26, 96) -> (23, 23, 256)
-            nn.Conv2d(96, 256, kernel_size=5, stride=1, padding=2, groups=2),
+            nn.Conv2d(96, 256, kernel_size=5, stride=1, padding=2, groups=2),   # (26, 26, 96) -> (26, 26, 256)     (26-5+2*2)/1+1=26       CONV-E2, CONV-F2
             nn.ReLU(inplace=True),
-            # (23, 23, 256) -> (11, 11, 256)
-            nn.MaxPool2d(kernel_size=3, stride=2),
+            nn.MaxPool2d(kernel_size=3, stride=2),                              # (26, 26, 256) -> (12, 12, 256)    (26-3)/2+1=12
             nn.CrossMapLRN2d(size=5, alpha=0.0001, beta=0.75, k=1.0),
-            # (11, 11, 256) -> (11, 11, 384)
-            nn.Conv2d(256, 384, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(256, 384, kernel_size=3, stride=1, padding=1),            # (12, 12, 256) -> (12, 12, 384)    (12-3+2*1)/1+1=12       CONV-E3, CONV-F3
             nn.ReLU(inplace=True),
-            # (11, 11, 384) -> (6, 6, 384)
-            nn.Conv2d(384, 64, kernel_size=1, stride=1, padding=0),
+            nn.Conv2d(384, 64, kernel_size=1, stride=1, padding=0),             # (12, 12, 384) -> (12, 12, 64)       (12-1)/1+1=12         CONV-E4, CONV-F4
             nn.ReLU(inplace=True),
             
         )
 
     def forward(self, x):
         x = self.features(x)
-        x = x.view(x.size(0), -1)
+        x = x.view(x.size(0), -1)                                               # 12 * 12 * 64
         return x
 
 class FaceImageModel(nn.Module):
@@ -78,9 +74,9 @@ class FaceImageModel(nn.Module):
         super(FaceImageModel, self).__init__()
         self.conv = ItrackerImageModel()
         self.fc = nn.Sequential(
-            nn.Linear(12*12*64, 128),
+            nn.Linear(12*12*64, 128),           # FC-F1
             nn.ReLU(inplace=True),
-            nn.Linear(128, 64),
+            nn.Linear(128, 64),                 # FC-F2
             nn.ReLU(inplace=True),
             )
 
@@ -94,9 +90,9 @@ class FaceGridModel(nn.Module):
     def __init__(self, gridSize = 25):
         super(FaceGridModel, self).__init__()
         self.fc = nn.Sequential(
-            nn.Linear(gridSize * gridSize, 256),
+            nn.Linear(gridSize * gridSize, 256),    # FC-FG1
             nn.ReLU(inplace=True),
-            nn.Linear(256, 128),
+            nn.Linear(256, 128),                    # FC-FG2
             nn.ReLU(inplace=True),
             )
 
@@ -117,14 +113,14 @@ class ITrackerModel(nn.Module):
         self.gridModel = FaceGridModel()
         # Joining both eyes
         self.eyesFC = nn.Sequential(
-            nn.Linear(2*12*12*64, 128),
+            nn.Linear(2*12*12*64, 128),     # FC-E1
             nn.ReLU(inplace=True),
             )
         # Joining everything
         self.fc = nn.Sequential(
-            nn.Linear(128+64+128, 128),
+            nn.Linear(128+64+128, 128),     # FC1
             nn.ReLU(inplace=True),
-            nn.Linear(128, 2),
+            nn.Linear(128, 2),              # FC2
             )
 
     def forward(self, faces, eyesLeft, eyesRight, faceGrids):

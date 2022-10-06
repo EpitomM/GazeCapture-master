@@ -78,10 +78,12 @@ def main():
     model = ITrackerModel()
     model = torch.nn.DataParallel(model)  # 用多个 GPU 加速训练
     model.cuda()
-    imSize=(224, 224)
-    cudnn.benchmark = True   
+    # 左眼、右眼、从原始帧中检测裁剪出来的脸部图像 尺寸均为 224×224
+    imSize = (224, 224)
+    cudnn.benchmark = True
 
     epoch = 0
+    # 如果启动命令中没有 --reset 参数，则加载 checkpoint
     if doLoad:
         saved = load_checkpoint()
         if saved:
