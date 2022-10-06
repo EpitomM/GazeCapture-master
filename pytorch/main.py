@@ -57,7 +57,7 @@ doTest = args.sink # Only run test, no training
 
 workers = 16
 epochs = 25
-batch_size = torch.cuda.device_count()*100 # Change if out of cuda memory
+batch_size = torch.cuda.device_count() * 100 # Change if out of cuda memory
 
 base_lr = 0.0001
 momentum = 0.9
@@ -98,9 +98,9 @@ def main():
         else:
             print('Warning: Could not read checkpoint!')
 
-    
-    dataTrain = ITrackerData(dataPath = args.data_path, split='train', imSize = imSize)
-    dataVal = ITrackerData(dataPath=args.data_path, split='test', imSize = imSize)
+    # 加载数据集，切分训练集、验证集
+    dataTrain = ITrackerData(dataPath=args.data_path, split='train', imSize=imSize)
+    dataVal = ITrackerData(dataPath=args.data_path, split='test', imSize=imSize)
    
     train_loader = torch.utils.data.DataLoader(
         dataTrain,
@@ -113,21 +113,26 @@ def main():
         num_workers=workers, pin_memory=True)
 
 
+    # 均方误差(L2范数的平方)
     criterion = nn.MSELoss().cuda()
 
+    # 采用 SGD 优化器
     optimizer = torch.optim.SGD(model.parameters(), lr,
                                 momentum=momentum,
                                 weight_decay=weight_decay)
 
     # Quick test
+    # 只进行测试，（不训练）
     if doTest:
         validate(val_loader, model, criterion, epoch)
         return
 
     for epoch in range(0, epoch):
         adjust_learning_rate(optimizer, epoch)
-        
+
+    # 开始训练
     for epoch in range(epoch, epochs):
+        # 调整学习率
         adjust_learning_rate(optimizer, epoch)
 
         # train for one epoch
@@ -146,20 +151,20 @@ def main():
         }, is_best)
 
 
-def train(train_loader, model, criterion,optimizer, epoch):
+def train(train_loader, model, criterion, optimizer, epoch):
     global count
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
 
-    # switch to train mode
+    # switch to train mode 切换到训练模式
     model.train()
 
     end = time.time()
 
     for i, (row, imFace, imEyeL, imEyeR, faceGrid, gaze) in enumerate(train_loader):
         
-        # measure data loading time
+        # measure data loading time 测量数据加载时间
         data_time.update(time.time() - end)
         imFace = imFace.cuda()
         imEyeL = imEyeL.cuda()
@@ -185,11 +190,12 @@ def train(train_loader, model, criterion,optimizer, epoch):
         loss.backward()
         optimizer.step()
 
-        # measure elapsed time
+        # measure elapsed time  计算一个 batch 耗时
         batch_time.update(time.time() - end)
+        # 更新当前时间
         end = time.time()
 
-        count=count+1
+        count = count + 1
 
         print('Epoch (train): [{0}][{1}/{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
@@ -198,43 +204,50 @@ def train(train_loader, model, criterion,optimizer, epoch):
                    epoch, i, len(train_loader), batch_time=batch_time,
                    data_time=data_time, loss=losses))
 
+'''
+测试 / 验证
+'''
 def validate(val_loader, model, criterion, epoch):
     global count_test
+    # 所有平均值和当前值初始化为零
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
     lossesLin = AverageMeter()
 
-    # switch to evaluate mode
+    # switch to evaluate mode   切换到验证模式
     model.eval()
+    # 记录当前时间
     end = time.time()
 
 
     oIndex = 0
     for i, (row, imFace, imEyeL, imEyeR, faceGrid, gaze) in enumerate(val_loader):
-        # measure data loading time
+        # measure data loading time 测量数据加载时间
         data_time.update(time.time() - end)
         imFace = imFace.cuda()
         imEyeL = imEyeL.cuda()
         imEyeR = imEyeR.cuda()
         faceGrid = faceGrid.cuda()
         gaze = gaze.cuda()
-        
-        imFace = torch.autograd.Variable(imFace, requires_grad = False)
-        imEyeL = torch.autograd.Variable(imEyeL, requires_grad = False)
-        imEyeR = torch.autograd.Variable(imEyeR, requires_grad = False)
-        faceGrid = torch.autograd.Variable(faceGrid, requires_grad = False)
-        gaze = torch.autograd.Variable(gaze, requires_grad = False)
+
+        # 求导
+        imFace = torch.autograd.Variable(imFace, requires_grad=False)
+        imEyeL = torch.autograd.Variable(imEyeL, requires_grad=False)
+        imEyeR = torch.autograd.Variable(imEyeR, requires_grad=False)
+        faceGrid = torch.autograd.Variable(faceGrid, requires_grad=False)
+        gaze = torch.autograd.Variable(gaze, requires_grad=False)
 
         # compute output
-        with torch.no_grad():
+        with torch.no_grad():   # 停止 autograd 模块的工作，以起到加速和节省显存的作用
             output = model(imFace, imEyeL, imEyeR, faceGrid)
 
+        # 计算欧几里得损失
         loss = criterion(output, gaze)
         
         lossLin = output - gaze
-        lossLin = torch.mul(lossLin,lossLin)
-        lossLin = torch.sum(lossLin,1)
+        lossLin = torch.mul(lossLin, lossLin)
+        lossLin = torch.sum(lossLin, 1)
         lossLin = torch.mean(torch.sqrt(lossLin))
 
         losses.update(loss.data.item(), imFace.size(0))
@@ -242,6 +255,7 @@ def validate(val_loader, model, criterion, epoch):
      
         # compute gradient and do SGD step
         # measure elapsed time
+        # 计算一个 batch 的执行时间
         batch_time.update(time.time() - end)
         end = time.time()
 
@@ -251,12 +265,15 @@ def validate(val_loader, model, criterion, epoch):
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                   'Error L2 {lossLin.val:.4f} ({lossLin.avg:.4f})\t'.format(
                     epoch, i, len(val_loader), batch_time=batch_time,
-                   loss=losses,lossLin=lossesLin))
+                   loss=losses, lossLin=lossesLin))
 
     return lossesLin.avg
 
 CHECKPOINTS_PATH = '.'
 
+'''
+加载 checkpoint
+'''
 def load_checkpoint(filename='checkpoint.pth.tar'):
     filename = os.path.join(CHECKPOINTS_PATH, filename)
     print(filename)
@@ -265,6 +282,9 @@ def load_checkpoint(filename='checkpoint.pth.tar'):
     state = torch.load(filename)
     return state
 
+'''
+保存 checkpoint
+'''
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     if not os.path.isdir(CHECKPOINTS_PATH):
         os.makedirs(CHECKPOINTS_PATH, 0o777)
@@ -292,8 +312,11 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
-
+'''
+调整学习率
+'''
 def adjust_learning_rate(optimizer, epoch):
+    # 将学习率设置为每 30 个 epoch 衰减 10 的初始 LR
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
     lr = base_lr * (0.1 ** (epoch // 30))
     for param_group in optimizer.state_dict()['param_groups']:

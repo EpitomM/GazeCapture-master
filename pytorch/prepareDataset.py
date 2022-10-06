@@ -185,7 +185,7 @@ def main():
     print('Will compare to the reference GitHub dataset metadata.mat...')
     # 共 1,490,959 帧有效图像（同时具有人脸和眼睛）
     reference = sio.loadmat('./reference_metadata.mat', struct_as_record=False)
-    # reference_metadata.mat 存储的数据：以下 8 项均为 1,490,959 的列表
+    # reference_metadata.mat 存储的数据：以下 8 项均为 1,490,959 的数组
     # frameIndex：该帧的索引号、
     # labelDotXCam、labelDotYCam：该帧在屏幕上显示的红点中心在预测空间的 x、y 位置、
     # labelFaceGrid：该帧的人脸网格，每一个值都是 4 维数组 [x, y, w, h]
